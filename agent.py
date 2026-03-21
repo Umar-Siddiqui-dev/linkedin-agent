@@ -92,35 +92,52 @@ Post requirements:
 def post_to_linkedin(content):
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=False,
             slow_mo=50
         )
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
+        # ─── LOAD SESSION ─────────────────────────────────
+        print("🍪 Loading LinkedIn session...")
+
+        cookies_env = os.environ.get("LINKEDIN_COOKIES", "")
+
+        if cookies_env:
+            # GitHub Actions — use cookies from environment
+            cookies = json.loads(cookies_env)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
+            )
+            context.add_cookies(cookies)
+            print("✅ Cookies loaded from GitHub secret!")
+
+        elif os.path.exists("linkedin_state.json"):
+            # Local — use full storage state (most reliable)
+            context = browser.new_context(
+                storage_state="linkedin_state.json",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
+            )
+            print("✅ Session loaded from linkedin_state.json!")
+
+        elif os.path.exists("linkedin_cookies.json"):
+            # Local fallback
+            with open("linkedin_cookies.json", "r") as f:
+                cookies = json.load(f)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
+            )
+            context.add_cookies(cookies)
+            print("✅ Cookies loaded from file!")
+
+        else:
+            print("⚠️ No session found! Run save_session.py first.")
+            browser.close()
+            return
+
         page = context.new_page()
 
         try:
-            # ─── LOAD COOKIES ─────────────────────────
-            print("🍪 Loading LinkedIn session...")
-
-            cookies_json = os.environ.get("LINKEDIN_COOKIES", "")
-
-            if cookies_json:
-                # Running on GitHub Actions
-                cookies = json.loads(cookies_json)
-                print("✅ Cookies loaded from environment!")
-            elif os.path.exists("linkedin_cookies.json"):
-                # Running locally
-                with open("linkedin_cookies.json", "r") as f:
-                    cookies = json.load(f)
-                print("✅ Cookies loaded from file!")
-            else:
-                print("⚠️ No cookies found! Run save_session.py first.")
-                return
-
-            context.add_cookies(cookies)
 
             # ─── GO TO FEED ───────────────────────────
             print("🏠 Navigating to LinkedIn feed...")
@@ -143,15 +160,30 @@ def post_to_linkedin(content):
 
             # ─── TYPE POST ────────────────────────────
             print("⌨️ Typing post...")
+            # Wait for modal to fully open
             time.sleep(3)
 
-            post_area = page.locator('[data-artdeco-is-focused]').first
-            if not post_area.is_visible():
-                post_area = page.locator('.ql-editor').first
-            if not post_area.is_visible():
-                post_area = page.locator('[contenteditable="true"]').first
+            # Take screenshot to see what's on screen
+            page.screenshot(path="editor_debug.png")
+            print("📸 Screenshot saved — check editor_debug.png")
 
-            post_area.click()
+            # Try clicking the visible text area inside the modal
+            try:
+                page.locator('.ql-editor').first.click(timeout=8000)
+                print("✅ Clicked .ql-editor")
+            except:
+                try:
+                    page.locator('[contenteditable="true"]').first.click(timeout=8000)
+                    print("✅ Clicked contenteditable")
+                except:
+                    try:
+                        page.locator('.share-creation-state__editor').click(timeout=8000)
+                        print("✅ Clicked share editor")
+                    except:
+                        # Last resort — click center of screen
+                        page.mouse.click(640, 400)
+                        print("✅ Clicked center of screen")
+
             time.sleep(2)
 
             # Type character by character to trigger LinkedIn's input detection
