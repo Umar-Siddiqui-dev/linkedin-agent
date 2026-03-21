@@ -92,7 +92,7 @@ Post requirements:
 def post_to_linkedin(content):
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=False,
+            headless=True,
             slow_mo=50
         )
         # ─── LOAD SESSION ─────────────────────────────────
