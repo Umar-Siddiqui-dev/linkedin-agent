@@ -1,6 +1,7 @@
 import time
 import random
 import os
+import json
 import calendar
 from groq import Groq
 from playwright.sync_api import sync_playwright
@@ -11,8 +12,6 @@ load_dotenv()
 
 # ─── CONFIG ───────────────────────────────────────────
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-LINKEDIN_EMAIL = os.environ["LINKEDIN_EMAIL"]
-LINKEDIN_PASSWORD = os.environ["LINKEDIN_PASSWORD"]
 
 # ─── DAY THEMES (No Sunday) ───────────────────────────
 DAY_THEMES = {
@@ -103,46 +102,49 @@ def post_to_linkedin(content):
         page = context.new_page()
 
         try:
-            # Login
-            print("🔐 Logging into LinkedIn...")
-            page.goto("https://www.linkedin.com/login",
-                      wait_until="domcontentloaded",
-                      timeout=60000)
-            time.sleep(random.uniform(3, 5))
+            # ─── LOAD COOKIES ─────────────────────────
+            print("🍪 Loading LinkedIn session...")
 
-            page.fill("#username", LINKEDIN_EMAIL)
-            time.sleep(random.uniform(0.5, 1.5))
-            page.fill("#password", LINKEDIN_PASSWORD)
-            time.sleep(random.uniform(0.5, 1.5))
-            page.click('[type="submit"]')
+            cookies_json = os.environ.get("LINKEDIN_COOKIES", "")
 
-            page.wait_for_load_state("domcontentloaded", timeout=60000)
-            time.sleep(random.uniform(4, 6))
+            if cookies_json:
+                # Running on GitHub Actions
+                cookies = json.loads(cookies_json)
+                print("✅ Cookies loaded from environment!")
+            elif os.path.exists("linkedin_cookies.json"):
+                # Running locally
+                with open("linkedin_cookies.json", "r") as f:
+                    cookies = json.load(f)
+                print("✅ Cookies loaded from file!")
+            else:
+                print("⚠️ No cookies found! Run save_session.py first.")
+                return
 
-            print(f"📍 Current URL: {page.url}")
+            context.add_cookies(cookies)
 
-            if "checkpoint" in page.url:
-                print("⚠️ LinkedIn security check! Complete it manually in the browser.")
-                input("Press ENTER here after completing the check...")
-
-            # Go to feed
-            print("🏠 Navigating to feed...")
+            # ─── GO TO FEED ───────────────────────────
+            print("🏠 Navigating to LinkedIn feed...")
             page.goto("https://www.linkedin.com/feed/",
                       wait_until="domcontentloaded",
                       timeout=60000)
             time.sleep(random.uniform(3, 5))
 
-            # Click Start a post
+            print(f"📍 Current URL: {page.url}")
+
+            # Check if session expired
+            if "login" in page.url or "authwall" in page.url:
+                print("⚠️ Session expired! Run save_session.py again to refresh cookies.")
+                return
+
+            # ─── OPEN POST EDITOR ─────────────────────
             print("✍️ Opening post editor...")
             page.click('[aria-label="Start a post"]', timeout=15000)
             time.sleep(random.uniform(2, 3))
 
-            # Type post content
-
+            # ─── TYPE POST ────────────────────────────
             print("⌨️ Typing post...")
             time.sleep(3)
 
-            # Click inside the post modal text area
             post_area = page.locator('[data-artdeco-is-focused]').first
             if not post_area.is_visible():
                 post_area = page.locator('.ql-editor').first
@@ -155,18 +157,18 @@ def post_to_linkedin(content):
             # Type character by character to trigger LinkedIn's input detection
             for char in content:
                 page.keyboard.type(char)
-                time.sleep(0.01)  # tiny delay between chars
+                time.sleep(0.01)
 
             time.sleep(3)
 
-            # Wait for Post button to become enabled
+            # ─── WAIT FOR POST BUTTON ─────────────────
             print("⏳ Waiting for Post button to enable...")
             page.wait_for_selector(
                 'button.share-actions__primary-action:not([disabled])',
                 timeout=15000
             )
 
-            # Click Post
+            # ─── CLICK POST ───────────────────────────
             print("📤 Publishing post...")
             page.locator('button.share-actions__primary-action').click()
             time.sleep(random.uniform(3, 5))
