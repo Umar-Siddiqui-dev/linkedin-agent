@@ -2,8 +2,8 @@ name: LinkedIn Auto Post Agent
 
 on:
   schedule:
-    - cron: '0 5 * * 1-6'
-  workflow_dispatch:
+    - cron: '0 5 * * 1-6'  # 10AM PKT (UTC+5) = 5AM UTC, Mon-Sat
+  workflow_dispatch:        # Manual trigger from GitHub UI
 
 jobs:
   post-to-linkedin:
@@ -29,9 +29,11 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           LINKEDIN_EMAIL: ${{ secrets.LINKEDIN_EMAIL }}
           LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD }}
-          LINKEDIN_COOKIES: ${{ secrets.LINKEDIN_COOKIES }}
         run: python agent.py
 
-      - name: Notify on failure
+      - name: Upload screenshot on failure
         if: failure()
-        run: echo "❌ Agent failed — session may have expired. Refresh cookies!"
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: error_screenshot.png

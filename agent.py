@@ -12,6 +12,8 @@ load_dotenv()
 
 # ─── CONFIG ───────────────────────────────────────────
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+LINKEDIN_EMAIL = os.environ["LINKEDIN_EMAIL"]
+LINKEDIN_PASSWORD = os.environ["LINKEDIN_PASSWORD"]
 
 # ─── DAY THEMES (No Sunday) ───────────────────────────
 DAY_THEMES = {
@@ -95,63 +97,53 @@ def post_to_linkedin(content):
             headless=True,
             slow_mo=50
         )
-        # ─── LOAD SESSION ─────────────────────────────────
-        print("🍪 Loading LinkedIn session...")
-
-        cookies_env = os.environ.get("LINKEDIN_COOKIES", "")
-
-        if cookies_env:
-            # GitHub Actions — use cookies from environment
-            cookies = json.loads(cookies_env)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800}
-            )
-            context.add_cookies(cookies)
-            print("✅ Cookies loaded from GitHub secret!")
-
-        elif os.path.exists("linkedin_state.json"):
-            # Local — use full storage state (most reliable)
-            context = browser.new_context(
-                storage_state="linkedin_state.json",
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800}
-            )
-            print("✅ Session loaded from linkedin_state.json!")
-
-        elif os.path.exists("linkedin_cookies.json"):
-            # Local fallback
-            with open("linkedin_cookies.json", "r") as f:
-                cookies = json.load(f)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800}
-            )
-            context.add_cookies(cookies)
-            print("✅ Cookies loaded from file!")
-
-        else:
-            print("⚠️ No session found! Run save_session.py first.")
-            browser.close()
-            return
-
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800}
+        )
         page = context.new_page()
 
         try:
+            # ─── LOGIN ────────────────────────────────
+            print("🔐 Logging into LinkedIn...")
+            page.goto("https://www.linkedin.com/login",
+                      wait_until="domcontentloaded",
+                      timeout=60000)
+            time.sleep(random.uniform(2, 3))
+
+            page.fill("#username", LINKEDIN_EMAIL)
+            time.sleep(random.uniform(0.5, 1))
+            page.fill("#password", LINKEDIN_PASSWORD)
+            time.sleep(random.uniform(0.5, 1))
+            page.click('[type="submit"]')
+
+            page.wait_for_load_state("domcontentloaded", timeout=60000)
+            time.sleep(random.uniform(4, 6))
+
+            print(f"📍 Current URL: {page.url}")
+
+            # ─── HANDLE CHECKPOINT ────────────────────
+            if "checkpoint" in page.url:
+                print("⚠️ LinkedIn checkpoint detected — waiting 10s and retrying...")
+                time.sleep(10)
+                page.goto("https://www.linkedin.com/feed/",
+                          wait_until="domcontentloaded",
+                          timeout=60000)
+                time.sleep(5)
+                print(f"📍 URL after retry: {page.url}")
+
+            # ─── VERIFY LOGIN ─────────────────────────
+            if "login" in page.url or "authwall" in page.url:
+                print("❌ Login failed — check LINKEDIN_EMAIL and LINKEDIN_PASSWORD secrets.")
+                page.screenshot(path="error_screenshot.png")
+                return
 
             # ─── GO TO FEED ───────────────────────────
-            print("🏠 Navigating to LinkedIn feed...")
+            print("🏠 Navigating to feed...")
             page.goto("https://www.linkedin.com/feed/",
                       wait_until="domcontentloaded",
                       timeout=60000)
             time.sleep(random.uniform(3, 5))
-
-            print(f"📍 Current URL: {page.url}")
-
-            # Check if session expired
-            if "login" in page.url or "authwall" in page.url:
-                print("⚠️ Session expired! Run save_session.py again to refresh cookies.")
-                return
 
             # ─── OPEN POST EDITOR ─────────────────────
             print("✍️ Opening post editor...")
@@ -160,33 +152,25 @@ def post_to_linkedin(content):
 
             # ─── TYPE POST ────────────────────────────
             print("⌨️ Typing post...")
-            # Wait for modal to fully open
             time.sleep(3)
 
-            # Take screenshot to see what's on screen
-            page.screenshot(path="editor_debug.png")
-            print("📸 Screenshot saved — check editor_debug.png")
-
-            # Try clicking the visible text area inside the modal
+            # Try different editor selectors
             try:
-                page.locator('.ql-editor').first.click(timeout=8000)
-                print("✅ Clicked .ql-editor")
+                post_area = page.locator('.ql-editor').first
+                post_area.click(timeout=8000)
+                print("✅ Using .ql-editor")
             except:
                 try:
-                    page.locator('[contenteditable="true"]').first.click(timeout=8000)
-                    print("✅ Clicked contenteditable")
+                    post_area = page.locator('[contenteditable="true"]').first
+                    post_area.click(timeout=8000)
+                    print("✅ Using contenteditable")
                 except:
-                    try:
-                        page.locator('.share-creation-state__editor').click(timeout=8000)
-                        print("✅ Clicked share editor")
-                    except:
-                        # Last resort — click center of screen
-                        page.mouse.click(640, 400)
-                        print("✅ Clicked center of screen")
+                    page.mouse.click(640, 400)
+                    print("✅ Clicked center of screen")
 
             time.sleep(2)
 
-            # Type character by character to trigger LinkedIn's input detection
+            # Type character by character
             for char in content:
                 page.keyboard.type(char)
                 time.sleep(0.01)
@@ -210,7 +194,7 @@ def post_to_linkedin(content):
         except Exception as e:
             print(f"❌ Error: {e}")
             page.screenshot(path="error_screenshot.png")
-            print("📸 Screenshot saved — open error_screenshot.png to see what happened")
+            print("📸 Screenshot saved — check error_screenshot.png")
 
         finally:
             browser.close()
