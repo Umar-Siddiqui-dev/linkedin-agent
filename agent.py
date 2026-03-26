@@ -16,7 +16,7 @@ DAY_THEMES = {
     "Monday":    "motivational story or personal experience related to coding, office life, career, or tech journey",
     "Tuesday":   "technical explanation of a backend concept in NestJS or Node.js with practical examples",
     "Wednesday": "software architecture or system design concept explained clearly with real world use cases",
-    "Thursday":  "frontend development topic, or web security and performance optimization technique",
+    "Thursday":  "frontend React/Next JS development topic, or web security and performance optimization technique with practicle examples",
     "Friday":    "advanced database concept, query optimization, or data modeling technique",
     "Saturday":  "building with AI, creating agents, automation, or practical LLM use cases for developers",
 }
