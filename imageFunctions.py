@@ -14,6 +14,13 @@ from google.genai import types
 from config import DEFAULT_GEMINI_IMAGE_MODEL, GEMINI_API_KEY, GEMINI_IMAGE_FALLBACKS, ImageType
 
 
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+)
+
+
 PROMPT_TEMPLATES = {
     ImageType.CODE_SNIPPET: """
 Create a high-quality LinkedIn post image of a {language} code snippet.
@@ -102,12 +109,6 @@ def gemini_image_models_to_try() -> list[str]:
         if m and m not in ordered:
             ordered.append(m)
     return ordered
-
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-)
 
 def extract_image_bytes(response: types.GenerateContentResponse) -> bytes:
     """Pull first inline image from a google-genai generate_content response."""
