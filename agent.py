@@ -263,7 +263,7 @@ if __name__ == "__main__":
     content = generate_post()
     GeneratePostImageFlag = "false"  # For Gemini post images
     GenerateCodeImageFlag = "true"   # For Ray.so code images
-    PostToLinkedinFlag = "true"
+    PostToLinkedinFlag = "false"
 
     if content is None:
         print("😴 No post today — enjoy your Sunday!")
