@@ -221,7 +221,7 @@ def generate_code_image_from_post(post: str, groq_client) -> dict | None:
             print(f"🗑️  Local file deleted → {local_path}")
         except OSError as e:
             print(f"⚠️  Could not delete local file: {e}")
-        
+         
         return {
             "image_url": image_url,
             "code": code,
