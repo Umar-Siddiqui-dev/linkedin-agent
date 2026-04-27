@@ -124,27 +124,112 @@ def get_profile_urn(token):
     return urn
 
 
-def post_to_linkedin(content):
+def post_to_linkedin(content, image_url=None):
     token = LINKEDIN_ACCESS_TOKEN
 
     print("🔐 Authenticating with LinkedIn API...")
     urn = get_profile_urn(token)
 
-    payload = {
-        "author": urn,
-        "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {
-                    "text": content,
-                },
-                "shareMediaCategory": "NONE",
-            }
-        },
-        "visibility": {
-            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-        },
-    }
+    if image_url:
+        # Step 1: Register the image with LinkedIn to get an image URN
+        print("📸 Registering image with LinkedIn...")
+        register_response = requests.post(
+            "https://api.linkedin.com/v2/assets?action=registerUpload",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Restli-Protocol-Version": "2.0.0",
+            },
+            json={
+                "registerUploadRequest": {
+                    "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                    "owner": urn,
+                    "serviceRelationships": [
+                        {
+                            "relationshipType": "OWNER",
+                            "identifier": "urn:li:userGeneratedContent",
+                        }
+                    ],
+                }
+            },
+        )
+        
+        if register_response.status_code != 200:
+            print(f"⚠️  Failed to register image: {register_response.status_code}")
+            print(f"Response: {register_response.text}")
+            # Fall back to text-only post
+            image_url = None
+        else:
+            register_data = register_response.json()
+            upload_url = register_data.get("value", {}).get("uploadMechanism", {}).get("com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {}).get("uploadUrl")
+            asset_urn = register_data.get("value", {}).get("asset")
+            
+            if not upload_url or not asset_urn:
+                print("⚠️  Could not extract upload URL or asset URN")
+                image_url = None
+            else:
+                # Step 2: Download image from Cloudinary
+                print(f"⬇️  Downloading image from {image_url[:50]}...")
+                img_response = requests.get(image_url)
+                if img_response.status_code != 200:
+                    print(f"⚠️  Failed to download image: {img_response.status_code}")
+                    image_url = None
+                else:
+                    # Step 3: Upload to LinkedIn
+                    print("⬆️  Uploading image to LinkedIn...")
+                    upload_response = requests.put(
+                        upload_url,
+                        data=img_response.content,
+                        headers={"Content-Type": "image/png"},
+                    )
+                    
+                    if upload_response.status_code != 201:
+                        print(f"⚠️  Failed to upload image: {upload_response.status_code}")
+                        image_url = None
+                    else:
+                        image_url = asset_urn
+
+    # Create payload based on whether we have an image
+    if image_url and isinstance(image_url, str) and image_url.startswith("urn:"):
+        # Image was successfully uploaded
+        payload = {
+            "author": urn,
+            "lifecycleState": "PUBLISHED",
+            "specificContent": {
+                "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {
+                        "text": content,
+                    },
+                    "shareMediaCategory": "IMAGE",
+                    "media": [
+                        {
+                            "status": "READY",
+                            "media": image_url,
+                        }
+                    ],
+                }
+            },
+            "visibility": {
+                "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+            },
+        }
+    else:
+        # Text-only post
+        payload = {
+            "author": urn,
+            "lifecycleState": "PUBLISHED",
+            "specificContent": {
+                "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {
+                        "text": content,
+                    },
+                    "shareMediaCategory": "NONE",
+                }
+            },
+            "visibility": {
+                "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+            },
+        }
 
     print("📤 Publishing post via LinkedIn API...")
     resp = requests.post(
@@ -200,24 +285,26 @@ if __name__ == "__main__":
             groq_client = Groq(api_key=GROQ_API_KEY)
             code_image_result = generate_code_image_from_post(post_text, groq_client)
             
+            code_image_url = None
             if code_image_result:
                 print(f"[OK] Code image generated and uploaded!")
                 print(f"[OK] Image URL: {code_image_result['image_url']}")
                 print(f"[OK] Code language: {code_image_result['language']}")
                 
                 # Replace code block with image URL in the post
-                post_text = replace_code_with_image_url(post_text, code_image_result['image_url'])
+                code_image_url = code_image_result['image_url']
+                post_text, _ = replace_code_with_image_url(post_text, code_image_url)
                 print(f"\n📋 Updated post content (code replaced with image):\n{post_text}\n")
 
         if(PostToLinkedinFlag == "true"):
-            post_to_linkedin(post_text)
+            post_to_linkedin(post_text, image_url=code_image_url if code_image_url else None)
 
     else:
-        
         
         post_text = content
         
         # Generate code image if enabled (independent from post image)
+        code_image_url = None
         if GenerateCodeImageFlag == "true":
             groq_client = Groq(api_key=GROQ_API_KEY)
             code_image_result = generate_code_image_from_post(post_text, groq_client)
@@ -228,10 +315,11 @@ if __name__ == "__main__":
                 print(f"[OK] Code language: {code_image_result['language']}")
                 
                 # Replace code block with image URL in the post
-                post_text = replace_code_with_image_url(post_text, code_image_result['image_url'])
+                code_image_url = code_image_result['image_url']
+                post_text, _ = replace_code_with_image_url(post_text, code_image_url)
                 print(f"\n📋 Updated post content (code replaced with image):\n{post_text}\n")
         
         if(PostToLinkedinFlag == "true"):
-            post_to_linkedin(post_text)
+            post_to_linkedin(post_text, image_url=code_image_url)
 
     print(f"\n🏁 Agent finished at {datetime.now()}")

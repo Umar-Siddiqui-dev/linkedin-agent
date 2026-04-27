@@ -10,7 +10,7 @@ from imageFunctions import generate_linkedin_image
 
 def code_to_image(
     code: str,
-    language: str = "python",
+    language: str = "javascript",
     theme: str = "one-hunter",
     mode: str = "dark",
     background: str = "midnight",
@@ -25,7 +25,7 @@ def code_to_image(
     
     Args:
         code: The code to convert to image
-        language: Programming language (default: "python")
+        language: Programming language (default: "javascript")
         theme: Color theme (default: "one-hunter")
         mode: Display mode (default: "dark")
         background: Background style (default: "midnight")
@@ -152,22 +152,37 @@ def extract_code_from_post(post: str) -> tuple[str | None, str]:
     return None, ""
 
 
-def replace_code_with_image_url(post: str, image_url: str) -> str:
+def replace_code_with_image_url(post: str, image_url: str) -> tuple[str, str]:
     """
-    Replace the code block in the post with an image link/reference.
+    Replace the code block in the post with a placeholder.
     
     Args:
         post: The original post content
         image_url: URL of the code image to insert
     
     Returns:
-        Post with code block replaced by image reference
+        Tuple of (updated_post_text, image_url)
+        The updated_post_text has the code block removed,
+        and image_url is returned separately for LinkedIn media attachment.
     """
-    # Replace code block with image reference
+    # Remove the code block entirely from the post text
     pattern = r'```\w+\s*\n.*?\n```'
-    replacement = f"[Code Image: {image_url}]"
-    updated_post = re.sub(pattern, replacement, post, flags=re.DOTALL)
-    return updated_post
+    updated_post = re.sub(pattern, "", post, flags=re.DOTALL).strip()
+    
+    # Add a subtle reference to code at the end before hashtags
+    # Find where hashtags start
+    hashtag_pattern = r'\n(#\w+)'
+    hashtag_match = re.search(hashtag_pattern, updated_post)
+    
+    if hashtag_match:
+        # Insert before hashtags
+        insertion_point = hashtag_match.start()
+        updated_post = updated_post[:insertion_point] + "\n\n👇 Check out the code snippet in the image above!\n" + updated_post[insertion_point:]
+    else:
+        # No hashtags, just append at the end
+        updated_post += "\n\n👇 Check out the code snippet in the image above!"
+    
+    return updated_post, image_url
 
 
 def generate_code_image_from_post(post: str, groq_client) -> dict | None:
