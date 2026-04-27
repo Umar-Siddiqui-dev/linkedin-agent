@@ -14,7 +14,13 @@ from imageFunctions import generate_image_from_spec, get_image_decision
 from codeFunctions import generate_code_image_from_post, replace_code_with_image_url, upload_to_cloudinary
 
 
+import cloudinary
 
+cloudinary.config(
+    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.environ.get("CLOUDINARY_API_KEY"),
+    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+)
 
 # ─── DAY THEMES (No Sunday) ───────────────────────────
 DAY_THEMES = {
