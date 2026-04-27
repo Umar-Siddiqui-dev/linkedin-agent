@@ -1,27 +1,32 @@
 import os
 import calendar
+import re
 import requests
-from groq import Groq
 from datetime import datetime
-from dotenv import load_dotenv
 
-load_dotenv()
+import cloudinary
+import cloudinary.uploader
+from groq import Groq
 
-# ─── CONFIG ───────────────────────────────────────────
-GROQ_API_KEY          = os.environ["GROQ_API_KEY"]
-LINKEDIN_ACCESS_TOKEN = os.environ["LINKEDIN_ACCESS_TOKEN"]
+
+from config import GEMINI_API_KEY, GROQ_API_KEY, LINKEDIN_ACCESS_TOKEN, ImageType
+from imageFunctions import generate_image_from_spec, get_image_decision
+from codeFunctions import generate_code_image_from_post, replace_code_with_image_url, upload_to_cloudinary
+
+
+
 
 # ─── DAY THEMES (No Sunday) ───────────────────────────
 DAY_THEMES = {
-    "Monday":    "motivational story or personal experience related to coding, office life, career, or tech journey",
-    "Tuesday":   "technical explanation of a backend concept in NestJS or Node.js with practical examples",
+    "Monday": "motivational story or personal experience related to coding, office life, career, or tech journey",
+    "Tuesday": "technical explanation of a backend concept in NestJS or Node.js with practical examples",
     "Wednesday": "software architecture or system design concept explained clearly with real world use cases",
-    "Thursday":  "frontend React/Next JS development topic, or web security and performance optimization technique with practicle examples",
-    "Friday":    "advanced database concept, query optimization, or data modeling technique",
-    "Saturday":  "building with AI, creating agents, automation, or practical LLM use cases for developers",
+    "Thursday": "frontend React/Next JS development topic, or web security and performance optimization technique with practicle examples",
+    "Friday": "advanced database concept, query optimization, or data modeling technique",
+    "Saturday": "building with AI, creating agents, automation, or practical LLM use cases for developers",
 }
 
-# ─── GET TODAY'S THEME ────────────────────────────────
+
 def get_todays_theme():
     day = calendar.day_name[datetime.now().weekday()]
     if day not in DAY_THEMES:
@@ -39,60 +44,77 @@ def generate_post():
     if not day:
         return None
 
-    client = Groq(api_key=GROQ_API_KEY)
+    groq_client = Groq(api_key=GROQ_API_KEY)
 
     is_technical = day not in ["Monday"]
-    dm_instruction = "- End with this line before hashtags: '💬 Have questions or working on something similar? DM me — happy to help.'" if is_technical else ""
+    dm_instruction = (
+        "- End with this line before hashtags: '💬 Have questions or working on something similar? DM me — happy to help.'"
+        if is_technical
+        else ""
+    )
     tone_instruction = (
         "Share a personal, vulnerable, real story or experience. Be human and inspiring."
-        if not is_technical else
-        "Explain clearly with a practical example or analogy. Teach something useful."
+        if not is_technical
+        else "Explain clearly with a practical example or analogy. Teach something useful."
     )
 
-    response = client.chat.completions.create(
+    response = groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=[{
-            "role": "system",
-            "content": """You are a senior software engineer and LinkedIn content creator.
-You write posts that feel genuinely human — never robotic, never generic.
-Every post you write must be on a DIFFERENT and FRESH topic.
-Never repeat the same idea twice. Be creative and specific."""
-        }, {
-            "role": "user",
-            "content": f"""Today is {day}.
+        messages=[
+            {
+                "role": "system",
+                "content": """You are a senior software engineer and LinkedIn content creator.
+                You write posts that feel genuinely human — never robotic, never generic.
+                Every post you write must be on a DIFFERENT and FRESH topic.
+                Never repeat the same idea twice. Be creative and specific.""",
+                            },
+                            {
+                                "role": "user",
+                                "content": f"""Today is {day}.
 
-Your job:
-1. First, PICK a fresh and specific topic related to: {theme}
-2. Then write a LinkedIn post about that topic
+                                Your job:
+                                1. First, PICK a fresh and specific topic related to: {theme}
+                                2. Then write a LinkedIn post about that topic
 
-Post requirements:
-- Start with a curiosity-driven hook to get readers attention (no emojis in first line)
-- {tone_instruction}
-- Conversational tone — write like a real person, not a textbook
--Include a practical example or code snippet if relevant to the theme. Use triple backticks to format the code block and specify the language, for example, javascript, python, or html.
-- Include a practical example or code snippet if relevant
-- Under 280 words
-- Use short paragraphs and line breaks for readability
-- End with a question that invites comments
-{dm_instruction}
-- Add 8-10 relevant hashtags at the very bottom
-- NEVER start with clichés like 'In today's world', 'As a developer', 'In this post'
-- NEVER write the same topic twice — be specific and original every time"""
-        }]
-    )
+                                Post requirements:
+                                - Start with a curiosity-driven hook to get readers attention (no emojis in first line)
+                                - Dont start techincal posts with "In today's world", "As a developer", "In this post", "what If questions"
+                                - {tone_instruction}
+                                - Conversational tone — write like a real person, not a textbook
+                                - Include a practical example or code snippet if relevant to the theme. Use triple backticks to format the code block and specify the language, for example, javascript, python, or html.
+                                - When adding code snippet add complete code snippet and exclude dependencies.
+                                - If including a code snippet, make it at least 15 and maximum 20 lines long — short snippets look bad as images
+                                - Under 400 words
+                                - Do not discuss outdated concepts or technologies.
+                                - Always Generate Unique content, never copy from other sources.
+                                - Always discuss Upto Date topics and technologies. for example in ReactJs concepts like class based components are outdated and now we use functional components with hooks so dont discuss such outdated topics.
+                                - Use short paragraphs and line breaks for readability
+                                - End with a question that invites comments
+                                {dm_instruction}
+                                - Add 8-10 relevant hashtags at the very bottom
+                                - NEVER start with clichés like 'In today's world', 'As a developer', 'In this post'
+                                - NEVER write the same topic twice — be specific and original every time""",
+                            },
+                ],
+                )
 
     post = response.choices[0].message.content
     print("✅ Post generated!\n")
     print("─" * 50)
     print(post)
     print("─" * 50)
-    return post
 
-# ─── GET LINKEDIN PROFILE URN ─────────────────────────
+    image_spec = get_image_decision(post, groq_client)
+    if image_spec is None:
+        return post
+
+    return [post, image_spec]                
+
+
 def get_profile_urn(token):
     resp = requests.get(
         "https://api.linkedin.com/v2/userinfo",
-        headers={"Authorization": f"Bearer {token}"}
+        headers={"Authorization": f"Bearer {token}"},
     )
     if resp.status_code != 200:
         raise Exception(f"Failed to fetch profile URN: {resp.status_code} {resp.text}")
@@ -101,7 +123,7 @@ def get_profile_urn(token):
     print(f"👤 Profile URN: {urn}")
     return urn
 
-# ─── POST TO LINKEDIN ─────────────────────────────────
+
 def post_to_linkedin(content):
     token = LINKEDIN_ACCESS_TOKEN
 
@@ -114,14 +136,14 @@ def post_to_linkedin(content):
         "specificContent": {
             "com.linkedin.ugc.ShareContent": {
                 "shareCommentary": {
-                    "text": content
+                    "text": content,
                 },
-                "shareMediaCategory": "NONE"
+                "shareMediaCategory": "NONE",
             }
         },
         "visibility": {
-            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
-        }
+            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+        },
     }
 
     print("📤 Publishing post via LinkedIn API...")
@@ -130,28 +152,86 @@ def post_to_linkedin(content):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "X-Restli-Protocol-Version": "2.0.0"
+            "X-Restli-Protocol-Version": "2.0.0",
         },
-        json=payload
+        json=payload,
     )
 
     if resp.status_code == 201:
         post_id = resp.headers.get("x-restli-id", "unknown")
-        print(f"✅ Successfully posted to LinkedIn!")
+        print("✅ Successfully posted to LinkedIn!")
         print(f"🔗 Post ID: {post_id}")
     else:
         print(f"❌ Failed to post: {resp.status_code}")
         print(f"📋 Response: {resp.text}")
         raise Exception(f"LinkedIn API error: {resp.status_code}")
 
-# ─── MAIN ─────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"🤖 LinkedIn Agent started at {datetime.now()}")
-    content = generate_post()
 
-    if content:
-        post_to_linkedin(content)
-    else:
+    content = generate_post()
+    GeneratePostImageFlag = "false"  # For Gemini post images
+    GenerateCodeImageFlag = "true"   # For Ray.so code images
+    PostToLinkedinFlag = "true"
+
+    if content is None:
         print("😴 No post today — enjoy your Sunday!")
 
-    print(f"🏁 Agent finished at {datetime.now()}")
+    elif isinstance(content, list):
+        post_text, image_spec = content[0], content[1]
+
+        if(GeneratePostImageFlag == "true"):
+
+            if not GEMINI_API_KEY:
+                print("⚠️  GEMINI_API_KEY / IMAGE_MODEL_API_KEY not set — cannot generate image.")
+            else:
+                local_path = generate_image_from_spec(image_spec)
+                cloudinary_url = upload_to_cloudinary(local_path)
+                try:
+                    os.remove(local_path)
+                    print(f"🗑️  Local file deleted → {local_path}")
+                except OSError as e:
+                    print(f"⚠️  Could not delete local file: {e}")
+
+                print(f"\n🌍 Post image live at: {cloudinary_url}")
+        
+        # Generate code image if enabled (independent from post image)
+        if GenerateCodeImageFlag == "true":
+            groq_client = Groq(api_key=GROQ_API_KEY)
+            code_image_result = generate_code_image_from_post(post_text, groq_client)
+            
+            if code_image_result:
+                print(f"[OK] Code image generated and uploaded!")
+                print(f"[OK] Image URL: {code_image_result['image_url']}")
+                print(f"[OK] Code language: {code_image_result['language']}")
+                
+                # Replace code block with image URL in the post
+                post_text = replace_code_with_image_url(post_text, code_image_result['image_url'])
+                print(f"\n📋 Updated post content (code replaced with image):\n{post_text}\n")
+
+        if(PostToLinkedinFlag == "true"):
+            post_to_linkedin(post_text)
+
+    else:
+        
+        
+        post_text = content
+        
+        # Generate code image if enabled (independent from post image)
+        if GenerateCodeImageFlag == "true":
+            groq_client = Groq(api_key=GROQ_API_KEY)
+            code_image_result = generate_code_image_from_post(post_text, groq_client)
+            
+            if code_image_result:
+                print(f"[OK] Code image generated and uploaded!")
+                print(f"[OK] Image URL: {code_image_result['image_url']}")
+                print(f"[OK] Code language: {code_image_result['language']}")
+                
+                # Replace code block with image URL in the post
+                post_text = replace_code_with_image_url(post_text, code_image_result['image_url'])
+                print(f"\n📋 Updated post content (code replaced with image):\n{post_text}\n")
+        
+        if(PostToLinkedinFlag == "true"):
+            post_to_linkedin(post_text)
+
+    print(f"\n🏁 Agent finished at {datetime.now()}")
