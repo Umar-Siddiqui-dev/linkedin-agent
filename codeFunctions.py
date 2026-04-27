@@ -177,10 +177,10 @@ def replace_code_with_image_url(post: str, image_url: str) -> tuple[str, str]:
     if hashtag_match:
         # Insert before hashtags
         insertion_point = hashtag_match.start()
-        updated_post = updated_post[:insertion_point] + "\n\n👇 Check out the code snippet in the image above!\n" + updated_post[insertion_point:]
+        updated_post = updated_post[:insertion_point] + "\n\n👇 Check out the code snippet in the image below!\n" + updated_post[insertion_point:]
     else:
         # No hashtags, just append at the end
-        updated_post += "\n\n👇 Check out the code snippet in the image above!"
+        updated_post += "\n\n👇 Check out the code snippet in the image below!"
     
     return updated_post, image_url
 
